@@ -1,0 +1,30 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserdata
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/xcode/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Misc
+*.swp
+*~
+
+# PDFs de calibracao (dados pessoais)
+*.pdf
+!Sources/**/*.pdf
