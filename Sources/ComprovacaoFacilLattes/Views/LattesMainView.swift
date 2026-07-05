@@ -25,6 +25,7 @@ struct LattesMainView: View {
     @State private var showUpdateConfirm = false
     @State private var noFilesMessage: String?
     @State private var showOnlyPending = false
+    @State private var showAddDocument = false
 
     /// Seções exibidas — quando o filtro está ligado, só as que têm pendências.
     private var displayedSections: [LattesSection] {
@@ -74,6 +75,9 @@ struct LattesMainView: View {
                 showSuggestions = false
             }
         }
+        .sheet(isPresented: $showAddDocument) {
+            AddOtherDocumentSheet(profile: profile)
+        }
         .overlay {
             if indexer.isRunning {
                 IndexingProgressOverlay(indexer: indexer)
@@ -116,6 +120,13 @@ struct LattesMainView: View {
                 Text("Escolha um PDF atualizado. Entradas novas serão adicionadas; entradas existentes serão preservadas.")
             }
 
+            Button {
+                showAddDocument = true
+            } label: {
+                Label("Adicionar Documento", systemImage: "doc.badge.plus")
+            }
+            .buttonStyle(.bordered)
+
             Spacer()
 
             QualisAreaMenu()
@@ -145,9 +156,15 @@ struct LattesMainView: View {
             Spacer()
 
             if !profile.limboCertificates.isEmpty {
-                Text("\(profile.limboCertificates.count) arquivo(s) sem vínculo")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Button {
+                    reviewLimboCertificates()
+                } label: {
+                    Text("\(profile.limboCertificates.count) arquivo(s) sem vínculo")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.orange)
+                .help("Tentar re-vincular os comprovantes que ficaram sem entrada correspondente")
             }
 
             Toggle(isOn: $showOnlyPending) {
@@ -253,6 +270,13 @@ struct LattesMainView: View {
         window.makeKeyAndOrderFront(nil)
     }
 
+    private func reviewLimboCertificates() {
+        let results = indexer.reviewLimbo(for: profile)
+        guard !results.isEmpty else { return }
+        scanItems = results
+        showSuggestions = true
+    }
+
     private func startIndexing(folderURL: URL) {
         Task {
             let results = await indexer.scanFolder(at: folderURL, for: profile)
@@ -294,8 +318,10 @@ struct LattesMainView: View {
         // ouvinte/apresentação). Os comprovantes já vinculados são preservados
         // re-ligando-os à nova entrada de mesmo hashKey (ano + título). Os que
         // não encontrarem entrada correspondente voltam para a área de revisão.
+        // "Outros Documentos" é uma seção manual (não vem do PDF) — preservada
+        // intacta, nunca apagada nem re-vinculada por hash.
         var certsByHash: [String: [Certificate]] = [:]
-        for section in profile.sections {
+        for section in profile.sections where section.title != AddOtherDocumentSheet.sectionTitle {
             for entry in section.entries where !entry.certificates.isEmpty {
                 certsByHash[entry.hashKey, default: []].append(contentsOf: entry.certificates)
             }
@@ -303,10 +329,11 @@ struct LattesMainView: View {
 
         // Remove as seções antigas (cascata apaga entradas; os comprovantes
         // ficam órfãos com entry=nil e pertencem ao profile, então sobrevivem).
-        for section in profile.sections {
+        for section in profile.sections where section.title != AddOtherDocumentSheet.sectionTitle {
             modelContext.delete(section)
         }
 
+        var newEntries: [LattesEntry] = []
         for (idx, parsedSection) in result.sections.enumerated() {
             let section = LattesSection(title: parsedSection.title, order: idx)
             section.profile = profile
@@ -330,15 +357,62 @@ struct LattesMainView: View {
                 entry.endYear = parsedEntry.endYear
                 entry.section = section
                 modelContext.insert(entry)
+                newEntries.append(entry)
 
                 // Re-vincula os comprovantes desta entrada (mesmo hashKey).
                 if let certs = certsByHash.removeValue(forKey: entry.hashKey) {
                     for c in certs { c.entry = entry }
+                    refreshStatus(entry)
+                }
+            }
+        }
+
+        // Fallback por similaridade: quando o parser muda a extração de título/ano
+        // entre versões, o hashKey deixa de bater mesmo para o mesmo certificado.
+        // Tenta re-vincular pelo próprio texto do comprovante antes de desistir —
+        // sem isso, uma evolução no parser derruba vínculos já confirmados.
+        let unresolved = certsByHash.values.flatMap { $0 }.filter { !$0.extractedText.isEmpty }
+        if !unresolved.isEmpty, !newEntries.isEmpty {
+            let entryFields = newEntries.map {
+                CertificateIndexer.EntryFields(
+                    title: $0.title, authors: $0.authors, venue: $0.venue, kind: $0.kind,
+                    portaria: $0.portaria, edital: $0.edital, issn: $0.issn, doi: $0.doi,
+                    year: $0.year, endYear: $0.endYear, hashKey: $0.hashKey)
+            }
+            let idf = SimilarityMatcher.buildIDF(from: newEntries.map { $0.title })
+            let rejected = Set(profile.rejectedLinks)
+            for cert in unresolved {
+                let baseName = cert.fileNameNoExt
+                let nameText = baseName
+                    .replacingOccurrences(of: "_", with: " ")
+                    .replacingOccurrences(of: "-", with: " ")
+                let matchText = cert.extractedText + " \n " + nameText
+                let certYears = CertificateIndexer.yearsIn(nameText).isEmpty
+                    ? CertificateIndexer.yearsIn(cert.extractedText) : CertificateIndexer.yearsIn(nameText)
+                let folderKinds = CertificateIndexer.inferFolderKinds(cert.fileURL.deletingLastPathComponent().path)
+                let ranked = CertificateIndexer.rankedMatches(
+                    text: matchText, certKey: baseName, certYears: certYears,
+                    entryFields: entryFields, folderKinds: folderKinds, idf: idf, rejected: rejected)
+                if let best = ranked.first, best.score >= 0.90 {
+                    let entry = newEntries[best.index]
+                    cert.entry = entry
+                    refreshStatus(entry)
                 }
             }
         }
 
         try? modelContext.save()
+    }
+
+    /// Recalcula o status (semáforo) de uma entrada a partir dos certificados vinculados.
+    private func refreshStatus(_ entry: LattesEntry) {
+        if entry.certificates.contains(where: { $0.isConfirmed }) {
+            entry.certificateStatus = .confirmed
+        } else if !entry.certificates.isEmpty {
+            entry.certificateStatus = .suggested
+        } else {
+            entry.certificateStatus = .none
+        }
     }
 }
 

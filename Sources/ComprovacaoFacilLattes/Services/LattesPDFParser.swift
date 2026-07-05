@@ -124,7 +124,7 @@ struct LattesPDFParser {
     /// Cabeçalhos de seções que CONTÊM entradas (alias normalizado → exibição).
     private static let sectionTable: [(alias: String, display: String, special: Special, isChild: Bool)] = [
         ("formacao academica/titulacao", "Formação acadêmica/titulação", .formacao, false),
-        ("pos-doutorado", "Pós-doutorado", .none, false),
+        ("pos-doutorado", "Pós-doutorado", .formacao, false),
         ("formacao complementar", "Formação complementar", .none, false),
         ("premios e titulos", "Prêmios e títulos", .premios, false),
         ("atuacao profissional", "Atuação profissional", .atuacao, false),
@@ -188,11 +188,24 @@ struct LattesPDFParser {
         if norm == "orientacoes e supervisoes em andamento" { return .groupAndamento }
         for row in sectionTable {
             if norm == row.alias { return .section(display: row.display, special: row.special, isChild: row.isChild) }
-            if row.alias.count >= 12, norm.hasPrefix(row.alias) {
+            // Prefix match (títulos partidos em duas linhas, ou com qualificador como
+            // "(completo)") — mas nunca quando a linha tem um ")" sem "(" correspondente:
+            // aí é o fecho de uma anotação de entrada que por coincidência começa com as
+            // mesmas palavras do título da seção (ex.: linha solta "Organização de
+            // evento)" fechando "(Congresso, Organização de evento)"), não um cabeçalho
+            // de verdade — um cabeçalho real nunca tem parênteses desbalanceados.
+            if row.alias.count >= 12, norm.hasPrefix(row.alias), !hasUnbalancedClosingParen(norm) {
                 return .section(display: row.display, special: row.special, isChild: row.isChild)
             }
         }
         return nil
+    }
+
+    /// Verdadeiro quando a linha tem mais ")" do que "(" — sinal de que ela é o FECHO
+    /// de um parêntese aberto numa linha anterior (anotação de entrada quebrada pela
+    /// paginação), não um título/cabeçalho de verdade.
+    private static func hasUnbalancedClosingParen(_ s: String) -> Bool {
+        s.filter { $0 == ")" }.count > s.filter { $0 == "(" }.count
     }
 
     // MARK: - Construção das seções
@@ -225,9 +238,12 @@ struct LattesPDFParser {
 
             // Classifica a linha; se não for cabeçalho, tenta juntá-la com a próxima —
             // o Lattes às vezes quebra cabeçalhos em duas linhas ("Projetos de"/"pesquisa").
+            // Nunca tenta a junção quando a própria linha já tem ")" sem "(" correspondente
+            // — nesse caso ela é o fecho de uma anotação de entrada (ex.: "Organização de
+            // evento)"), não o início de um cabeçalho partido.
             var hc: HeaderClass? = classify(norm)
             var consumed = 1
-            if hc == nil, i + 1 < lines.count {
+            if hc == nil, i + 1 < lines.count, !hasUnbalancedClosingParen(norm) {
                 let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
                 if !next.isEmpty, !isNoise(next), let c2 = classify(normalizeHeader(line + " " + next)) {
                     switch c2 {
@@ -284,9 +300,24 @@ struct LattesPDFParser {
             for body in info.bodies {
                 switch info.special {
                 case .atuacao:
-                    append(&result, title, parseAtuacao(body))
+                    // Separa por vínculo (instituição) e, dentro dele, por categoria
+                    // (Vínculo institucional / Atividades administrativas /
+                    // Disciplinas ministradas) — ordenado do mais recente ao mais antigo.
+                    for (label, ents) in groupAtuacaoPorVinculo(parseAtuacao(body)) {
+                        append(&result, "\(title) - \(label)", ents)
+                    }
                 case .banca:
-                    append(&result, title, parseEntries(body, kind: "Banca", banca: true))
+                    // "Trabalhos de conclusão" costuma vir subdividido por nível
+                    // (Mestrado/Doutorado/Qualificação/Graduação) — separa em seções
+                    // próprias para identificar de qual se trata. "Comissões
+                    // julgadoras" (concurso público etc.) não tem esses marcadores.
+                    if title.contains("trabalhos de conclusão") {
+                        for (nivel, ents) in parseBancaPorNivel(body) {
+                            append(&result, nivel.isEmpty ? title : "\(title) - \(nivel)", ents)
+                        }
+                    } else {
+                        append(&result, title, parseEntries(body, kind: "Banca", banca: true))
+                    }
                 case .projetos:
                     append(&result, title, parseProjetos(body, kind: "Projeto"))
                 case .organizacao:
@@ -459,6 +490,12 @@ struct LattesPDFParser {
                 institution = line
                     .replacingOccurrences(of: ", Brasil.", with: "")
                     .replacingOccurrences(of: ", Brasil", with: "")
+                    // O valor de "Regime: <Integral/Parcial/Dedicação exclusiva>" às
+                    // vezes é reordenado pelo PDFKit e cola no fim do nome da
+                    // instituição do vínculo SEGUINTE (com ou sem espaço) — remove.
+                    .replacingOccurrences(
+                        of: #"\s*(Integral|Parcial|Horista|Dedica[çc][ãa]o\s*[Ee]xclusiva)\s*$"#,
+                        with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespaces)
                 lastVinculoIdx = -1
                 i += 1; continue
@@ -574,6 +611,62 @@ struct LattesPDFParser {
                                 doi: "", isbn: "", order: 0)]
         }
         return entries
+    }
+
+    /// Reorganiza a "Atuação profissional" por vínculo (instituição) e, dentro dele,
+    /// por categoria (Vínculo institucional / Atividades administrativas / Disciplinas
+    /// ministradas). Instituições e entradas dentro de cada grupo vêm da mais recente
+    /// para a mais antiga (vínculo/atividade em aberto — "Atual" — conta como mais
+    /// recente; disciplinas não têm período aberto, então usam só o próprio ano).
+    private static func groupAtuacaoPorVinculo(_ flat: [ParsedEntry]) -> [(label: String, entries: [ParsedEntry])] {
+        guard !flat.isEmpty else { return [] }
+
+        func recency(_ e: ParsedEntry) -> Int {
+            if e.kind != "Disciplina ministrada", e.endYear == 0, e.year > 0 { return 9999 }
+            return max(e.year, e.endYear)
+        }
+
+        // Chave de agrupamento normalizada: o mesmo vínculo pode aparecer com ou sem
+        // a sigla no fim ("Universidade Federal do Espírito Santo" vs "… - UFES") por
+        // causa do artefato de reordenação do Regime (ver acima) — sem isso, a mesma
+        // instituição vira dois grupos separados.
+        func institutionKey(_ venue: String) -> String {
+            normalizeHeader(venue.replacingOccurrences(
+                of: #"\s*-\s*[A-ZÀ-Ú]{2,10}$"#, with: "", options: .regularExpression))
+        }
+
+        let byInstitution = Dictionary(grouping: flat) {
+            $0.venue.isEmpty ? "outros vinculos" : institutionKey($0.venue)
+        }
+        // Rótulo de exibição: a variante mais completa (mais longa) do nome da
+        // instituição encontrada no grupo — normalmente a que TEM a sigla.
+        let displayName: [String: String] = byInstitution.mapValues { ents in
+            ents.map(\.venue).filter { !$0.isEmpty }.max(by: { $0.count < $1.count }) ?? "Outros vínculos"
+        }
+        let institutionOrder = byInstitution.keys.sorted { a, b in
+            let ra = byInstitution[a]!.map(recency).max() ?? 0
+            let rb = byInstitution[b]!.map(recency).max() ?? 0
+            return ra != rb ? ra > rb : displayName[a]! < displayName[b]!
+        }
+
+        let kindOrder: [(kind: String, display: String)] = [
+            ("Vínculo institucional", "Vínculo institucional"),
+            ("Atividade administrativa", "Atividades administrativas"),
+            ("Disciplina ministrada", "Disciplinas ministradas"),
+        ]
+
+        var groups: [(label: String, entries: [ParsedEntry])] = []
+        for inst in institutionOrder {
+            let entriesForInst = byInstitution[inst]!
+            for (kind, display) in kindOrder {
+                var sub = entriesForInst.filter { $0.kind == kind }
+                    .sorted { recency($0) > recency($1) }
+                guard !sub.isEmpty else { continue }
+                for i in sub.indices { sub[i].order = i }
+                groups.append((label: "\(displayName[inst]!) - \(display)", entries: sub))
+            }
+        }
+        return groups
     }
 
     /// Extrai um título curto do cargo/função de uma atividade administrativa,
@@ -723,7 +816,7 @@ struct LattesPDFParser {
     /// então dividimos pelo NÍVEL (marcador confiável) e tiramos o ano de
     /// "Ano de obtenção:" quando houver.
     private static let formacaoLevelRE = try! NSRegularExpression(
-        pattern: #"^(Doutorado|Mestrado Profissional|Mestrado|Gradua[çc][ãa]o|Especializa[çc][ãa]o|Aperfei[çc]oamento|Curso [Tt]écnico|Ensino Fundamental|Ensino Médio|Livre-doc[êe]ncia|Resid[êe]ncia|Habilita[çc][ãa]o)\b"#)
+        pattern: #"^(P[óo]s[- ][Dd]outorado|Doutorado|Mestrado Profissional|Mestrado|Gradua[çc][ãa]o|Especializa[çc][ãa]o|Aperfei[çc]oamento|Curso [Tt]écnico|Ensino Fundamental|Ensino Médio|Livre-doc[êe]ncia|Resid[êe]ncia|Habilita[çc][ãa]o)\b"#)
 
     private static func parseFormacao(_ body: String) -> [ParsedEntry] {
         let lines = body.components(separatedBy: "\n")
@@ -767,7 +860,12 @@ struct LattesPDFParser {
                     || n.hasPrefix("faculdade") || n.hasPrefix("fundacao") || n.hasPrefix("centro")
             }?.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
             let yStr = firstMatch(in: text, pattern: #"Ano de obten[çc][ãa]o:\s*(\d{4})"#)
-            let y = Int(yStr) ?? extractYear(from: text)
+            var y = Int(yStr) ?? extractYear(from: text)
+            // Diplomas duplos no mesmo período (ex.: licenciatura + bacharelado) às
+            // vezes perdem a própria coluna de período por um artefato de quebra de
+            // página que a duplica no diploma anterior — herda o ano do diploma
+            // imediatamente anterior em vez de ficar sem ano.
+            if y == 0, let last = entries.last { y = last.year }
             entries.append(ParsedEntry(
                 rawText: text, title: inst.isEmpty ? title : "\(title) — \(inst)",
                 kind: "Formação", year: y, authors: "", venue: inst,
@@ -965,13 +1063,29 @@ struct LattesPDFParser {
             // (ex.: "… 2023." seguido de "(Congresso) Título.").
             let cleaned = lines.map { stripLeadingNumber(stripCluster($0)) }
                 .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            // Nos tipos "de citação" (Lattes sempre lista SOBRENOME, Iniciais.. antes do
+            // título), uma linha sem vírgula perto do início E sem ano nunca é o começo
+            // de uma entrada nova — é metadado solto (ex.: "Cuadernos de Pesimismo
+            // (Ciudad de México)", uma anotação de local/veículo sem rótulo) ou a
+            // primeira linha de um resumo/abstract sem rótulo (ex.: "Este artigo tem por
+            // objetivo…") que, sem isso, vaza como prefixo do título da PRÓXIMA entrada.
+            let citationKinds: Set<String> = [
+                "Artigo", "Livro/Capítulo", "Trabalho em evento", "Produção técnica",
+                "Mídia", "Corpo editorial",
+            ]
+            func looksLikeStrayFragment(_ l: String) -> Bool {
+                guard citationKinds.contains(kind), l.count <= 160 else { return false }
+                let prefix = l.prefix(50)
+                return !prefix.contains(",") && !hasYear(l)
+            }
             var buf: [String] = []
             for (li, line) in cleaned.enumerated() {
                 // Metadados ("Palavras-chave:", "Referências adicionais:"…) e
                 // continuações (URL quebrada em várias linhas, "PORTARIA…" de uma
                 // referência) após o fim de uma entrada pertencem a ela — anexa ao
                 // último chunk em vez de iniciar um novo (senão viram entradas falsas).
-                if buf.isEmpty, !chunks.isEmpty, isMetadataLine(line) || isContinuationStart(line) {
+                if buf.isEmpty, !chunks.isEmpty,
+                   isMetadataLine(line) || isContinuationStart(line) || looksLikeStrayFragment(line) {
                     chunks[chunks.count - 1] += " " + line
                     continue
                 }
@@ -1064,6 +1178,102 @@ struct LattesPDFParser {
             edital: SimilarityMatcher.editalNumbers(text).joined(separator: " "))
     }
 
+    /// O Lattes agrupa "Participação em banca de trabalhos de conclusão" por nível,
+    /// cada um com sua própria linha-marcador solta no corpo ("Mestrado", "Doutorado",
+    /// "Exame de qualificação de mestrado/doutorado", "Graduação"). Divide o corpo por
+    /// esses marcadores para identificar de qual se trata; sem marcadores, mantém tudo
+    /// num único grupo (nível vazio) como antes.
+    private static let bancaLevelMarkers: [(match: String, display: String)] = [
+        ("mestrado", "Mestrado"),
+        ("doutorado", "Doutorado"),
+        ("exame de qualificacao de mestrado", "Qualificação de Mestrado"),
+        ("exame de qualificacao de doutorado", "Qualificação de Doutorado"),
+        ("graduacao", "Graduação"),
+    ]
+
+    private static func parseBancaPorNivel(_ body: String) -> [(nivel: String, entries: [ParsedEntry])] {
+        let lines = body.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        let numClusterRE = try! NSRegularExpression(pattern: #"^(\d{1,3}\.\s*)+"#)
+        // Retorna o nível da linha e, se veio com uma coluna de numeração destacada
+        // colada ("1. 2. 3. 4. 5. 6. Doutorado"), quantos números tinha ("6").
+        func levelFor(_ l: String) -> (display: String, numCount: Int)? {
+            let n = normalizeHeader(l)
+            guard let m = numClusterRE.firstMatch(in: n, range: NSRange(n.startIndex..., in: n)),
+                  let r = Range(m.range, in: n) else {
+                return bancaLevelMarkers.first(where: { $0.match == n }).map { ($0.display, 0) }
+            }
+            let rest = String(n[r.upperBound...])
+            let cluster = String(n[r])
+            let count = cluster.filter { $0 == "." }.count
+            return bancaLevelMarkers.first(where: { $0.match == rest }).map { ($0.display, count) }
+        }
+        guard lines.contains(where: { levelFor($0) != nil }) else {
+            return [(nivel: "", entries: parseEntries(body, kind: "Banca", banca: true))]
+        }
+
+        // Linhas onde cada entrada real começa ("Participação em banca de…"). A busca é
+        // no texto UNIDO por espaço — a frase às vezes quebra entre duas linhas
+        // ("…Participação em banca" / "de Fulano…") e escaparia de uma checagem linha a
+        // linha, fazendo a contagem abaixo perder entradas.
+        var offsets: [Int] = []
+        var acc = 0
+        for l in lines { offsets.append(acc); acc += l.count + 1 }
+        let joined = lines.joined(separator: " ")
+        let bancaMarkRE = try! NSRegularExpression(
+            pattern: #"Participaç[ãa]o\s+em\s+[Bb]anca\s+de"#, options: .caseInsensitive)
+        let ns = joined as NSString
+        let matchLocations = bancaMarkRE.matches(in: joined, range: NSRange(location: 0, length: ns.length))
+            .map(\.range.location)
+        var entryStartLines = Set<Int>()
+        for loc in matchLocations {
+            var idx = 0
+            for (i, off) in offsets.enumerated() where off <= loc { idx = i }
+            entryStartLines.insert(idx)
+        }
+
+        var groups: [(nivel: String, lines: [String])] = []
+        var current = ""
+        var buf: [String] = []
+        // O PDFKit às vezes reordena o texto e cola a coluna de numeração destacada do
+        // nível ATUAL no marcador do PRÓXIMO nível (ex.: "Mestrado" seguido imediatamente,
+        // sem nenhum conteúdo real, por "1. 2. 3. 4. 5. 6. Doutorado" — mas essas 6
+        // entradas que vêm a seguir ainda são de Mestrado). Adia a troca até que comece a
+        // (N+1)-ésima entrada real — não na N-ésima, para não cortar no meio do resto do
+        // texto da última entrada ainda pertencente ao nível anterior.
+        var pendingLevel: String? = nil
+        var pendingCount = 0
+        var pendingSeen = 0
+        for (li, l) in lines.enumerated() {
+            if let (lvl, numCount) = levelFor(l) {
+                if buf.isEmpty, numCount > 0, !current.isEmpty, pendingLevel == nil {
+                    pendingLevel = lvl; pendingCount = numCount; pendingSeen = 0
+                    continue
+                }
+                groups.append((current, buf))
+                current = lvl; buf = []
+                pendingLevel = nil
+                continue
+            }
+            if pendingLevel != nil, entryStartLines.contains(li) {
+                pendingSeen += 1
+                if pendingSeen > pendingCount {
+                    groups.append((current, buf))
+                    current = pendingLevel!; buf = [l]
+                    pendingLevel = nil
+                    continue
+                }
+            }
+            buf.append(l)
+        }
+        groups.append((current, buf))
+
+        return groups.compactMap { g in
+            guard !g.nivel.isEmpty else { return nil }
+            let entries = parseEntries(g.lines.joined(separator: "\n"), kind: "Banca", banca: true)
+            return entries.isEmpty ? nil : (nivel: g.nivel, entries: entries)
+        }
+    }
+
     // MARK: - Helpers de texto
 
     private static func normalizeHeader(_ s: String) -> String {
@@ -1099,6 +1309,9 @@ struct LattesPDFParser {
     private static func isContinuationStart(_ line: String) -> Bool {
         guard let f = line.first else { return false }
         if line.hasPrefix("http") || line.hasPrefix("www.") { return true }
+        // "Home page:" quebrado em duas linhas deixa a URL sozinha, entre colchetes,
+        // na linha seguinte ("[http://…]") — sem isso vira uma entrada órfã sem título.
+        if line.hasPrefix("[http") || line.hasPrefix("[www.") { return true }
         if f.isLowercase { return true }
         if f == "-" || f == "–" { return true }
         let n = normalizeHeader(line)

@@ -28,3 +28,9 @@ Package.resolved
 # PDFs de calibracao (dados pessoais)
 *.pdf
 !Sources/**/*.pdf
+
+# Build artifacts
+build_dmg.sh
+dist/
+*.xcarchive
+ComprovacaoFacilLattes 20*/

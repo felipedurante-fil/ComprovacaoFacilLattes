@@ -183,6 +183,68 @@ final class CertificateIndexer: ObservableObject {
         return items
     }
 
+    /// Rechecagem dos comprovantes órfãos (sem entrada vinculada) — ex.: após um
+    /// "Atualizar Lattes" cujo re-parse não encontrou hash correspondente para todos.
+    /// Diferente de `scanFolder`, não lê arquivos: reaproveita o texto já extraído
+    /// e guardado em cada `Certificate`.
+    @MainActor
+    func reviewLimbo(for profile: LattesProfile) -> [ScanItem] {
+        let entries = profile.sections.flatMap { $0.sortedEntries }
+        let limbo = profile.limboCertificates
+        guard !entries.isEmpty, !limbo.isEmpty else { return [] }
+
+        let entryFields: [EntryFields] = entries.map {
+            EntryFields(title: $0.title, authors: $0.authors, venue: $0.venue,
+                        kind: $0.kind, portaria: $0.portaria, edital: $0.edital,
+                        issn: $0.issn, doi: $0.doi, year: $0.year, endYear: $0.endYear,
+                        hashKey: $0.hashKey)
+        }
+        let idf = SimilarityMatcher.buildIDF(from: entries.map { $0.title })
+        let rejected = Set(profile.rejectedLinks)
+
+        var items: [ScanItem] = []
+        for cert in limbo {
+            let baseName = cert.fileNameNoExt
+            let nameText = baseName
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+            let hasText = !cert.extractedText.isEmpty
+            let matchText = cert.extractedText + " \n " + nameText
+            let certYears = Self.yearsIn(nameText).isEmpty
+                ? Self.yearsIn(cert.extractedText) : Self.yearsIn(nameText)
+            let relFolder = cert.fileURL.deletingLastPathComponent().path
+            let folderKinds = Self.inferFolderKinds(relFolder)
+            let ranked = Self.rankedMatches(
+                text: matchText, certKey: baseName, certYears: certYears,
+                entryFields: entryFields, folderKinds: folderKinds, idf: idf, rejected: rejected)
+
+            let best = ranked.first
+            let score = best?.score ?? 0
+            cert.confidence = score
+            let confident = score >= suggestThreshold
+            let showGuess = score >= guessFloor
+
+            var combos: [LattesEntry] = []
+            if let best {
+                for m in ranked where m.index != best.index && m.score >= 0.92 {
+                    combos.append(entries[m.index])
+                    if combos.count >= 3 { break }
+                }
+            }
+
+            items.append(ScanItem(
+                certificate: cert,
+                suggestedEntry: (showGuess && best != nil) ? entries[best!.index] : nil,
+                score: score,
+                confident: confident,
+                hasText: hasText,
+                comboEntries: combos,
+                noLikelyEntry: hasText && !showGuess))
+        }
+        items.sort { $0.score > $1.score }
+        return items
+    }
+
     @MainActor
     private func log(_ line: String) {
         logLines.append(line)

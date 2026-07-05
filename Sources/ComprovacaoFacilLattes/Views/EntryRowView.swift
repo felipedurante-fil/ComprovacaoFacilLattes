@@ -76,6 +76,15 @@ struct EntryRowView: View {
                         try? modelContext.save()
                     }
                 }
+
+                // "Outros Documentos" é criado manualmente pelo usuário — diferente
+                // das entradas vindas do Lattes, pode ser excluído por completo.
+                if entry.section?.title == AddOtherDocumentSheet.sectionTitle {
+                    Divider()
+                    Button("Excluir documento", role: .destructive) {
+                        deleteDocument()
+                    }
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.system(size: 16))
@@ -148,6 +157,16 @@ struct EntryRowView: View {
             modelContext.insert(cert)
         }
         entry.certificateStatus = .confirmed
+        try? modelContext.save()
+    }
+
+    /// Remove a entrada e seus comprovantes por completo (só para "Outros
+    /// Documentos" — entradas vindas do Lattes nunca chegam a esta ação).
+    private func deleteDocument() {
+        for cert in entry.certificates {
+            modelContext.delete(cert)
+        }
+        modelContext.delete(entry)
         try? modelContext.save()
     }
 }
