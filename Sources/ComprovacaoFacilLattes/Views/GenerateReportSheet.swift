@@ -14,6 +14,8 @@ struct GenerateReportSheet: View {
     @State private var selectAll = true
 
     @State private var includeLattes = true
+    @State private var includeTOC = true
+    @State private var numberPages = true
     @State private var isGenerating = false
     @State private var errorMessage: String?
 
@@ -81,8 +83,12 @@ struct GenerateReportSheet: View {
                     }
 
                     GroupBox("Opções") {
-                        Toggle("Iniciar com o Currículo Lattes completo", isOn: $includeLattes)
-                            .padding(4)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Iniciar com o Currículo Lattes completo", isOn: $includeLattes)
+                            Toggle("Gerar sumário", isOn: $includeTOC)
+                            Toggle("Numerar páginas", isOn: $numberPages)
+                        }
+                        .padding(4)
                     }
 
                     GroupBox("Resumo") {
@@ -156,7 +162,9 @@ struct GenerateReportSheet: View {
                 startYear: useFullPeriod ? nil : startYear,
                 endYear:   useFullPeriod ? nil : endYear,
                 includeLattes: includeLattes,
-                qualisByEntry: qualisMap
+                qualisByEntry: qualisMap,
+                includeTOC: includeTOC,
+                numberPages: numberPages
             )
 
             guard let data = PDFReportGenerator.generate(config: config) else {

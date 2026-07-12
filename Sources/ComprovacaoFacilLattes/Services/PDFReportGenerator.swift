@@ -4,11 +4,11 @@ import AppKit
 import CoreText
 
 /// Gera o PDF final em A4 retrato:
-///   1. Sumário com a página de cada item comprobatório
+///   1. Sumário com a página de cada item comprobatório (opcional)
 ///   2. Currículo Lattes completo
 ///   3. Comprovantes na ordem do Lattes, com página de legenda (divisória) por seção
-/// Todas as páginas são numeradas (a partir de 1) no canto superior direito, com o
-/// número em branco dentro de uma caixa preta para ficar sempre visível.
+/// Páginas numeradas (a partir de 1) no canto superior direito, com o número em
+/// branco dentro de uma caixa preta para ficar sempre visível — também opcional.
 struct PDFReportGenerator {
 
     struct ReportConfig {
@@ -18,6 +18,8 @@ struct PDFReportGenerator {
         var endYear: Int?
         var includeLattes: Bool = true
         var qualisByEntry: [UUID: String] = [:]  // id da entrada → "A1" etc.
+        var includeTOC: Bool = true
+        var numberPages: Bool = true
     }
 
     private static let pageSize = CGSize(width: 595, height: 842)   // A4 retrato
@@ -95,13 +97,15 @@ struct PDFReportGenerator {
 
         guard !body.isEmpty else { return nil }
 
-        // 3 — Sumário (precisa do nº de páginas que ele próprio ocupa)
-        let tocPageCount = tocPageCount(for: toc.count)
-        let tocSlabs = buildTOCSlabs(toc, tocPageCount: tocPageCount)
+        // 3 — Sumário (opcional; quando presente, precisa do nº de páginas que ele
+        // próprio ocupa para numerar os itens do corpo corretamente)
+        let tocSlabs: [Slab] = config.includeTOC
+            ? buildTOCSlabs(toc, tocPageCount: tocPageCount(for: toc.count))
+            : []
 
-        // 4 — Montagem final com numeração
+        // 4 — Montagem final com numeração (opcional)
         let all = tocSlabs + body
-        return render(all)
+        return render(all, numberPages: config.numberPages)
     }
 
     // MARK: - Filtro por período
@@ -216,7 +220,7 @@ struct PDFReportGenerator {
 
     // MARK: - Montagem + numeração
 
-    private static func render(_ slabs: [Slab]) -> Data? {
+    private static func render(_ slabs: [Slab], numberPages: Bool) -> Data? {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData) else { return nil }
         var box = CGRect(origin: .zero, size: pageSize)
@@ -228,8 +232,9 @@ struct PDFReportGenerator {
             case .external(let page): drawFitted(page, ctx: ctx)
             case .custom(let draw):   draw(ctx)
             }
-            // A página é sempre contada (i + 1); o número só é impresso quando permitido.
-            if slab.showsNumber {
+            // O número só é impresso quando a opção está ligada E a página permite
+            // (divisórias de seção nunca mostram número, mesmo com a opção ligada).
+            if numberPages, slab.showsNumber {
                 drawPageNumber(ctx, number: i + 1)
             }
             ctx.endPDFPage()
