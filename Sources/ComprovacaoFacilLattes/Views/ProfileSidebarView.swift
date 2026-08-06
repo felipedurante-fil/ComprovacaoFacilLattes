@@ -11,6 +11,8 @@ struct ProfileSidebarView: View {
     @State private var showNewProfile = false
     @State private var profileToDelete: LattesProfile?
     @State private var showDeleteConfirm = false
+    @State private var profileToExport: LattesProfile?
+    @State private var importError: String?
 
     var body: some View {
         List(selection: $selectedProfile) {
@@ -18,6 +20,10 @@ struct ProfileSidebarView: View {
                 ProfileRow(profile: profile)
                     .tag(profile)
                     .contextMenu {
+                        Button("Exportar comprovação…") {
+                            profileToExport = profile
+                        }
+                        Divider()
                         Button("Excluir currículo", role: .destructive) {
                             profileToDelete = profile
                             showDeleteConfirm = true
@@ -28,12 +34,17 @@ struct ProfileSidebarView: View {
         .navigationTitle("Comprovação Fácil do Lattes")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showNewProfile = true
+                Menu {
+                    Button("Importar novo currículo Lattes…") {
+                        showNewProfile = true
+                    }
+                    Button("Importar arquivo de comprovação…") {
+                        importArchive()
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help("Importar novo currículo Lattes")
+                .help("Importar currículo ou restaurar backup")
             }
         }
         .sheet(isPresented: $showNewProfile) {
@@ -44,6 +55,16 @@ struct ProfileSidebarView: View {
             } onCancel: {
                 showNewProfile = false
             }
+        }
+        .sheet(item: $profileToExport) { profile in
+            ExportProfileSheet(profile: profile)
+        }
+        .alert("Importar comprovação", isPresented: .init(
+            get: { importError != nil }, set: { if !$0 { importError = nil } }
+        )) {
+            Button("OK", role: .cancel) { importError = nil }
+        } message: {
+            Text(importError ?? "")
         }
         .confirmationDialog(
             "Excluir currículo?",
@@ -60,6 +81,25 @@ struct ProfileSidebarView: View {
             Button("Cancelar", role: .cancel) { }
         } message: { profile in
             Text("Todos os vínculos de comprovantes de \"\(profile.name)\" serão removidos permanentemente.")
+        }
+    }
+
+    private func importArchive() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.zip]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Selecione o arquivo .zip exportado pelo app"
+        panel.prompt = "Importar"
+        guard panel.runModal() == .OK, let url = panel.urls.first else { return }
+
+        do {
+            let profile = try ProfileArchiver.importProfile(from: url, modelContext: modelContext)
+            selectedEntry = nil
+            selectedProfile = profile
+        } catch {
+            importError = error.localizedDescription
         }
     }
 }
