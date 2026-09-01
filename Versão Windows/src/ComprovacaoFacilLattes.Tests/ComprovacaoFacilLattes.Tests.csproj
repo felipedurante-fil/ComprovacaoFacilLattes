@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ComprovacaoFacilLattes.Core\ComprovacaoFacilLattes.Core.csproj" />
+    <ProjectReference Include="..\ComprovacaoFacilLattes.Infrastructure\ComprovacaoFacilLattes.Infrastructure.csproj" />
+    <ProjectReference Include="..\ComprovacaoFacilLattes.App\ComprovacaoFacilLattes.App.csproj" />
+  </ItemGroup>
+
+  <!-- Mesmos dados de idioma do Tesseract que a Infrastructure copia — necessários aqui
+       também porque os testes rodam com AppContext.BaseDirectory apontando para a pasta
+       de saída DESTE projeto, não a da Infrastructure. -->
+  <ItemGroup>
+    <None Include="..\ComprovacaoFacilLattes.Infrastructure\TessData\*.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>TessData\%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
+</Project>

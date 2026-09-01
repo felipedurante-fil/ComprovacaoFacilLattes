@@ -1,0 +1,45 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ComprovacaoFacilLattes.App.ViewModels"
+        xmlns:core="using:ComprovacaoFacilLattes.Core.Models"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="760" d:DesignHeight="560"
+        x:Class="ComprovacaoFacilLattes.App.Views.ScanReviewWindow"
+        x:DataType="vm:ScanReviewViewModel"
+        Title="Revisão de Comprovantes"
+        Width="760" Height="560">
+
+    <Grid Margin="12" RowDefinitions="Auto,*">
+        <Button Grid.Row="0" Content="Vincular sugestões ≥90%" Command="{Binding ApplyConfidentCommand}" Margin="0,0,0,8" />
+
+        <ScrollViewer Grid.Row="1">
+            <ItemsControl ItemsSource="{Binding Items}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ScanItemViewModel">
+                        <Border Background="#0F000000" CornerRadius="6" Padding="10" Margin="0,0,0,6">
+                            <Grid ColumnDefinitions="*,220,Auto" RowDefinitions="Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
+                                           Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="Gray" />
+                                <ComboBox Grid.Row="1" Grid.Column="1" Margin="6,4,6,0"
+                                          ItemsSource="{Binding $parent[ItemsControl].((vm:ScanReviewViewModel)DataContext).AllEntries}"
+                                          SelectedItem="{Binding SelectedEntry}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="core:LattesEntry">
+                                            <TextBlock Text="{Binding DisplayTitle}" TextTrimming="CharacterEllipsis" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Grid.Row="1" Grid.Column="2" Content="Vincular"
+                                        Command="{Binding $parent[ItemsControl].((vm:ScanReviewViewModel)DataContext).LinkCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsEnabled="{Binding !Applied}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</Window>

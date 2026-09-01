@@ -1,0 +1,124 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ComprovacaoFacilLattes.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="760"
+        x:Class="ComprovacaoFacilLattes.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        x:Name="RootWindow"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="Comprovação Fácil do Lattes"
+        Width="1200" Height="760">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <Grid ColumnDefinitions="240,1,*,1,320">
+
+        <!-- Coluna 1: barra lateral de perfis -->
+        <DockPanel Grid.Column="0" Margin="8">
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,8">
+                <Button Content="Importar currículo…" Command="{Binding ImportNewProfileCommand}" HorizontalAlignment="Stretch" />
+                <Button Content="Importar backup…" Command="{Binding ImportBackupCommand}" HorizontalAlignment="Stretch" />
+            </StackPanel>
+            <ListBox DockPanel.Dock="Top" ItemsSource="{Binding Profiles}"
+                     SelectedItem="{Binding SelectedProfileItem}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ProfileListItemViewModel">
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Exportar comprovação…" Command="{Binding #RootWindow.((vm:MainWindowViewModel)DataContext).ExportProfileCommand}" />
+                        <MenuItem Header="Excluir currículo" Command="{Binding #RootWindow.((vm:MainWindowViewModel)DataContext).DeleteProfileCommand}" />
+                    </ContextMenu>
+                </ListBox.ContextMenu>
+            </ListBox>
+        </DockPanel>
+
+        <Rectangle Grid.Column="1" Fill="#22000000" />
+
+        <!-- Coluna 2: currículo aberto -->
+        <Grid Grid.Column="2" Margin="12" RowDefinitions="Auto,Auto,*" IsEnabled="{Binding !IsBusy}">
+
+            <!-- Barra de ações -->
+            <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                <Button Content="Escanear Pasta por Certificados" Command="{Binding ScanFolderCommand}" Margin="0,0,6,6" />
+                <Button Content="Atualizar Lattes" Command="{Binding UpdateLattesCommand}" Margin="0,0,6,6" />
+                <Button Content="Adicionar Documento" Command="{Binding OpenAddDocumentCommand}" Margin="0,0,6,6" />
+                <Button Content="Gerar arquivo com comprovantes" Command="{Binding OpenGenerateReportCommand}" Margin="0,0,6,6" />
+                <TextBlock Text="Área Qualis:" VerticalAlignment="Center" Margin="12,0,4,6" />
+                <ComboBox ItemsSource="{Binding QualisAreas}" SelectedItem="{Binding SelectedQualisArea}" Width="220" Margin="0,0,0,6" />
+            </WrapPanel>
+
+            <!-- Barra de status -->
+            <Border Grid.Row="1" Background="#0F000000" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <TextBlock Text="{Binding ConfirmedCount, StringFormat='🟢 {0} confirmadas'}" />
+                        <TextBlock Text="{Binding SuggestedCount, StringFormat='🟡 {0} sugeridas'}" />
+                        <TextBlock Text="{Binding PendingCount, StringFormat='🔴 {0} pendentes'}" />
+                        <CheckBox Content="Só pendências" IsChecked="{Binding ShowOnlyPending}" />
+                        <Button Content="{Binding LimboCount, StringFormat='{}{0} arquivo(s) sem vínculo'}"
+                                Command="{Binding ReviewLimboCommand}"
+                                IsVisible="{Binding LimboCount}" />
+                        <TextBlock Text="{Binding StatusMessage}" Foreground="Gray" />
+                    </StackPanel>
+                    <ProgressBar Minimum="0" Maximum="100" Value="{Binding CoveragePercent}" Height="6" />
+                </StackPanel>
+            </Border>
+
+            <!-- Seções em acordeão -->
+            <ScrollViewer Grid.Row="2">
+                <ItemsControl ItemsSource="{Binding Sections}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SectionViewModel">
+                            <Expander Margin="0,0,0,6" IsExpanded="True">
+                                <Expander.Header>
+                                    <TextBlock Text="{Binding Title, StringFormat='{}{0}'}" FontWeight="SemiBold" />
+                                </Expander.Header>
+                                <ItemsControl ItemsSource="{Binding Entries}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:EntryViewModel">
+                                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                                <Button Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                        Background="Transparent" Padding="6,4"
+                                                        Click="OnEntryRowClick">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                                        <TextBlock Grid.Column="0" Text="{Binding StatusGlyph}" Margin="0,0,8,0" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" TextWrapping="Wrap" />
+                                                        <TextBlock Grid.Column="2" Text="{Binding AttachmentCount, StringFormat='📎 {0}'}" Margin="8,0,0,0" />
+                                                    </Grid>
+                                                </Button>
+                                                <Button Grid.Column="1" Content="⋯" Padding="8,4" Margin="4,0,0,0"
+                                                        Click="OnManageEntryClick" ToolTip.Tip="Gerenciar comprovantes…" />
+                                                <Button Grid.Column="2" Content="🗑" Padding="8,4" Margin="4,0,0,0"
+                                                        IsVisible="{Binding IsManualDocument}"
+                                                        Click="OnDeleteManualDocumentClick" ToolTip.Tip="Excluir documento" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+        <Rectangle Grid.Column="3" Fill="#22000000" />
+
+        <!-- Coluna 3: preview -->
+        <Grid Grid.Column="4" Margin="8" RowDefinitions="Auto,*">
+            <TextBlock Grid.Row="0" Text="{Binding SelectedEntry.DisplayTitle}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Border Grid.Row="1" Background="#0F000000" CornerRadius="6">
+                <ScrollViewer>
+                    <Image Source="{Binding PreviewImage}" Stretch="Uniform" Margin="8" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

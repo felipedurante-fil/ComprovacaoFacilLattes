@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ComprovacaoFacilLattes.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="480" d:DesignHeight="560"
+        x:Class="ComprovacaoFacilLattes.App.Views.GenerateReportWindow"
+        x:DataType="vm:GenerateReportViewModel"
+        Title="Gerar arquivo com comprovantes"
+        Width="480" Height="560"
+        IsEnabled="{Binding !IsBusy}">
+
+    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto,Auto" ColumnDefinitions="*">
+        <TextBlock Grid.Row="0" Text="Seções a incluir" FontWeight="SemiBold" Margin="0,0,0,6" />
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Ano inicial:" VerticalAlignment="Center" />
+                <NumericUpDown Value="{Binding StartYear}" Minimum="0" Maximum="2100" FormatString="0" Width="110" ShowButtonSpinner="False" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Ano final:" VerticalAlignment="Center" />
+                <NumericUpDown Value="{Binding EndYear}" Minimum="0" Maximum="2100" FormatString="0" Width="110" ShowButtonSpinner="False" />
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="2" Margin="0,0,0,10">
+            <ItemsControl ItemsSource="{Binding SectionOptions}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ReportSectionOption">
+                        <CheckBox Content="{Binding Title}" IsChecked="{Binding IsSelected}" Margin="0,2" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="3" Spacing="4" Margin="0,0,0,10">
+            <CheckBox Content="Incluir currículo Lattes completo" IsChecked="{Binding IncludeLattes}" />
+            <CheckBox Content="Gerar sumário" IsChecked="{Binding IncludeToc}" />
+            <CheckBox Content="Numerar páginas" IsChecked="{Binding NumberPages}" />
+            <TextBlock Text="{Binding StatusMessage}" Foreground="Gray" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Cancelar" Command="{Binding CancelCommand}" />
+            <Button Content="Gerar…" Command="{Binding GenerateCommand}" Classes="accent" />
+        </StackPanel>
+    </Grid>
+</Window>

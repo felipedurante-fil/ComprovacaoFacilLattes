@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ComprovacaoFacilLattes.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="220"
+        x:Class="ComprovacaoFacilLattes.App.Views.AddDocumentWindow"
+        x:DataType="vm:AddDocumentViewModel"
+        Title="Adicionar Documento"
+        Width="440" Height="220"
+        CanResize="False">
+
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto">
+        <TextBlock Grid.Row="0" Text="Título" Margin="0,0,0,4" />
+        <TextBox Grid.Row="1" Text="{Binding Title}" PlaceholderText="Ex.: Certidão de Regularidade" Margin="0,0,0,10" />
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+            <Button Content="Escolher arquivo…" Command="{Binding PickFileCommand}" />
+            <TextBlock Text="{Binding FilePath}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="260" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" Foreground="IndianRed" VerticalAlignment="Top" />
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Cancelar" Command="{Binding CancelCommand}" />
+            <Button Content="Adicionar" Command="{Binding SaveCommand}" />
+        </StackPanel>
+    </Grid>
+</Window>

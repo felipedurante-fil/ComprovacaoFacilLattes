@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ComprovacaoFacilLattes.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="440"
+        x:Class="ComprovacaoFacilLattes.App.Views.ManageCertificatesWindow"
+        x:DataType="vm:ManageCertificatesViewModel"
+        x:Name="RootWindow"
+        Title="Gerenciar comprovantes"
+        Width="560" Height="440">
+
+    <Grid Margin="16" RowDefinitions="Auto,Auto,*">
+        <TextBlock Grid.Row="0" Text="{Binding EntryTitle}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,8" />
+        <Button Grid.Row="1" Content="Confirmar todos" Command="{Binding ConfirmAllCommand}" Margin="0,0,0,10" />
+
+        <ScrollViewer Grid.Row="2">
+            <ItemsControl ItemsSource="{Binding Certificates}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:CertificateRowViewModel">
+                        <Border Background="#0F000000" CornerRadius="6" Padding="8" Margin="0,0,0,6">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                                <!-- IsConfirmed é só leitura (o Model é a fonte da verdade) — OneWay evita o
+                                     Avalonia tentar escrever de volta numa propriedade sem setter; o toggle
+                                     de verdade acontece pelo Command, que dispara o Refresh() e atualiza a UI. -->
+                                <CheckBox Grid.Column="0" IsChecked="{Binding IsConfirmed, Mode=OneWay}"
+                                          Command="{Binding #RootWindow.((vm:ManageCertificatesViewModel)DataContext).ToggleConfirmCommand}"
+                                          CommandParameter="{Binding}" />
+                                <TextBlock Grid.Column="1" Text="{Binding FileName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="6,0" />
+                                <Button Grid.Column="2" Content="↑"
+                                        Command="{Binding #RootWindow.((vm:ManageCertificatesViewModel)DataContext).MoveUpCommand}"
+                                        CommandParameter="{Binding}" Margin="2,0" />
+                                <Button Grid.Column="3" Content="↓"
+                                        Command="{Binding #RootWindow.((vm:ManageCertificatesViewModel)DataContext).MoveDownCommand}"
+                                        CommandParameter="{Binding}" Margin="2,0" />
+                                <Button Grid.Column="4" Content="Excluir"
+                                        Command="{Binding #RootWindow.((vm:ManageCertificatesViewModel)DataContext).DeleteCommand}"
+                                        CommandParameter="{Binding}" Margin="2,0" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</Window>

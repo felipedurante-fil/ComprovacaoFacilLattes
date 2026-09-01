@@ -34,3 +34,11 @@ build_dmg.sh
 dist/
 *.xcarchive
 ComprovacaoFacilLattes 20*/
+
+# .NET (Versão Windows)
+bin/
+obj/
+.vs/
+*.user
+publish/
+Versão Windows/src/ComprovacaoFacilLattes.Infrastructure/TessData/*.traineddata

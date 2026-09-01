@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ComprovacaoFacilLattes.App/ComprovacaoFacilLattes.App.csproj" />
+    <Project Path="src/ComprovacaoFacilLattes.Core/ComprovacaoFacilLattes.Core.csproj" />
+    <Project Path="src/ComprovacaoFacilLattes.Infrastructure/ComprovacaoFacilLattes.Infrastructure.csproj" />
+    <Project Path="src/ComprovacaoFacilLattes.Tests/ComprovacaoFacilLattes.Tests.csproj" />
+  </Folder>
+</Solution>

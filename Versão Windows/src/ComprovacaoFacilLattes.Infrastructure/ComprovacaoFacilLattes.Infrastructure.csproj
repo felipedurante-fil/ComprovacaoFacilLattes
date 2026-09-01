@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ComprovacaoFacilLattes.Core\ComprovacaoFacilLattes.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+    <PackageReference Include="PDFsharp" Version="6.2.4" />
+    <PackageReference Include="PDFtoImage" Version="5.4.0" />
+    <PackageReference Include="Tesseract" Version="5.2.0" />
+  </ItemGroup>
+
+  <!-- Dados de idioma do Tesseract (OCR offline pt/en) — copiados para a pasta de saída,
+       e de lá para a publicação final (win-x64), para que o app não dependa de nenhuma
+       instalação externa do Tesseract no computador do usuário. -->
+  <ItemGroup>
+    <None Include="TessData\*.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>TessData\%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
+  <!-- Fonte embutida (DejaVu Sans, licença livre) usada pelo gerador de PDF — o
+       PdfSharp 6 não descobre fontes do sistema sozinho em nenhuma plataforma. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Fonts\DejaVuSans.ttf" />
+    <EmbeddedResource Include="Fonts\DejaVuSans-Bold.ttf" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
